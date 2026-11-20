@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title description">
+  <title id="title">Word Relay logo</title>
+  <desc id="description">A mint letter W tile in front of a second tile on a dark teal square.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" x2="1" y1="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#264540"/>
+      <stop offset="1" stop-color="#101d22"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" x2="1" y1="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#cdffe8"/>
+      <stop offset="1" stop-color="#92ebc4"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="152" height="152" rx="34" fill="url(#background)" stroke="#75a89a" stroke-opacity=".55" stroke-width="2"/>
+  <rect x="75" y="54" width="50" height="60" rx="11" fill="#294b4b" stroke="#79ab9e" stroke-width="2"/>
+  <rect x="37" y="40" width="62" height="62" rx="12" fill="#071b19" opacity=".25" transform="translate(1 4)"/>
+  <rect x="37" y="40" width="62" height="62" rx="12" fill="url(#tile)"/>
+  <path d="m49 58 6.6 26h7.1l5.3-15.4L73.3 84h7.1L87 58h-7.3l-3.3 16.3L71.1 58h-6.2l-5.3 16.3L56.3 58z" fill="#11342d"/>
+</svg>

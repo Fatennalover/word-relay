@@ -1,6 +1,20 @@
-# Word Relay for Mac
+<p align="center">
+  <img src="assets/word-relay-banner.svg" alt="Word Relay — live letter scanning and fast, offline suggestions" width="960">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Fatennalover/word-relay/releases/latest"><strong>Download Word Relay</strong></a>
+  · <a href="#start-a-match">Quick start</a>
+  · <a href="#build-from-source">Build from source</a>
+</p>
+
+# Word Relay
 
 Word Relay watches a Roblox window for the starting tiles and finds English words that start with them. It keeps the prompt steady while words are typed into the tile row. It includes 106,179 indexed English words and runs locally on macOS 14 or later.
+
+| Live scanner | Match history | Custom suggestions |
+| --- | --- | --- |
+| Reads the whole tile row, including longer prompts | Tracks submissions and clears the match history when the game ends | Choose 1–100 suggestions and save up to 100 custom words |
 
 ## Download
 
