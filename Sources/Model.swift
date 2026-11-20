@@ -72,6 +72,7 @@ final class Dashboard: ObservableObject {
     private var engine = Match()
     private var stream: SCStream?
     private var sink: CaptureSink?
+    private var pickerObserver: WindowPickerObserver?
     private var generation = UUID()
     private var copyGeneration = UUID()
     private var lastCaptureAt: TimeInterval?
@@ -107,11 +108,25 @@ final class Dashboard: ObservableObject {
         let token = UUID()
         generation = token
         engine.resume()
-        Task { await connect(token: token) }
+        if CaptureSource.usesSystemPicker {
+            preview = nil
+            previewMessage = nil
+            presentPicker(token: token)
+        } else {
+            Task { await connect(token: token) }
+        }
     }
 
     func stop() {
         generation = UUID()
+        if let pickerObserver {
+            let picker = SCContentSharingPicker.shared
+            picker.remove(pickerObserver)
+            self.pickerObserver = nil
+        }
+        if CaptureSource.usesSystemPicker {
+            SCContentSharingPicker.shared.isActive = false
+        }
         let previous = stream
         stream = nil
         sink = nil
@@ -185,7 +200,7 @@ final class Dashboard: ObservableObject {
     }
 
     func refreshWindows() {
-        guard CGPreflightScreenCaptureAccess() else { return }
+        guard !CaptureSource.usesSystemPicker, CGPreflightScreenCaptureAccess() else { return }
         Task {
             if let windows = try? await CaptureSource.windows() {
                 self.windows = CaptureSource.choices(windows)
@@ -212,6 +227,17 @@ final class Dashboard: ObservableObject {
         Task {
             defer { previewBusy = false }
             do {
+                if CaptureSource.usesSystemPicker {
+                    guard let sink, watch == .watching else {
+                        previewMessage = "Start sharing a window to preview its scan area."
+                        return
+                    }
+                    let image = await sink.snapshot()
+                    guard self.sink === sink else { return }
+                    guard let image else { throw CaptureIssue.invalidFrame }
+                    preview = image
+                    return
+                }
                 try requirePermission()
                 let available = try await CaptureSource.windows()
                 windows = CaptureSource.choices(available)
@@ -267,6 +293,39 @@ final class Dashboard: ObservableObject {
 
     nonisolated static var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
+    private func presentPicker(token: UUID) {
+        let picker = SCContentSharingPicker.shared
+        var configuration = SCContentSharingPickerConfiguration()
+        configuration.allowedPickerModes = [.singleWindow]
+        configuration.allowsChangingSelectedContent = false
+        if let ownID = Bundle.main.bundleIdentifier {
+            configuration.excludedBundleIDs = [ownID]
+        }
+        picker.defaultConfiguration = configuration
+        let observer = WindowPickerObserver { [weak self] result in
+            Task { @MainActor in
+                guard let self, self.generation == token, let observer = self.pickerObserver else { return }
+                picker.remove(observer)
+                self.pickerObserver = nil
+                switch result {
+                case .success(.none):
+                    self.stop()
+                case .success(.some(let filter)):
+                    let window: SCWindow?
+                    if #available(macOS 15.2, *) { window = filter.includedWindows.first }
+                    else { window = nil }
+                    await self.connect(filter: filter, window: window, token: token)
+                case .failure(let error):
+                    self.failed(error, token: token)
+                }
+            }
+        }
+        pickerObserver = observer
+        picker.add(observer)
+        picker.isActive = true
+        picker.present(using: .window)
+    }
+
     private func connect(token: UUID) async {
         do {
             try requirePermission()
@@ -274,10 +333,19 @@ final class Dashboard: ObservableObject {
             guard generation == token else { return }
             windows = CaptureSource.choices(available)
             let window = try CaptureSource.resolve(sourceID, windows: available)
-            sourceName = window.owningApplication?.applicationName ?? "Selected window"
-            let filter = CaptureSource.filter(window)
+            await connect(filter: CaptureSource.filter(window), window: window, token: token)
+        } catch {
+            failed(error, token: token)
+        }
+    }
+
+    private func connect(filter: SCContentFilter, window: SCWindow?, token: UUID) async {
+        guard generation == token else { return }
+        do {
+            let roblox = window.map(CaptureSource.isRoblox) ?? false
+            sourceName = window?.owningApplication?.applicationName ?? "Shared window"
             let sink = CaptureSink(region: preferences.region, playedRegion: preferences.playedRegion,
-                                   robloxHUD: CaptureSource.isRoblox(window)) {
+                                   robloxHUD: roblox) {
                 [weak self] reading, now in
                 DispatchQueue.main.async { self?.receive(reading, now: now, token: token) }
             } failure: { [weak self] error in
@@ -294,7 +362,7 @@ final class Dashboard: ObservableObject {
                 return
             }
             watch = .watching
-            submissionPid = CaptureSource.isRoblox(window) ? window.owningApplication?.processID : nil
+            submissionPid = roblox ? window?.owningApplication?.processID : nil
             configureSubmissionListener()
             let startedAt = Self.now
             windowHealthCheck = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in

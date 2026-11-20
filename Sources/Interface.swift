@@ -386,23 +386,33 @@ private struct SettingsView: View {
     private var sourceSettings: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Window").font(.headline)
-            HStack {
-                Picker("Capture source", selection: Binding(
-                    get: { model.sourceID },
-                    set: { model.selectWindow($0) }
-                )) {
-                    Text("Roblox (automatic)").tag(nil as CGWindowID?)
-                    ForEach(model.windows) { window in
-                        Text(window.name).tag(Optional(window.id))
-                    }
-                    if let choice = model.sourceID, !model.windows.contains(where: { $0.id == choice }) {
-                        Text("Previous selection").tag(Optional(choice))
-                    }
-                }
-                .labelsHidden()
-                Button("Refresh") { model.refreshWindows() }.buttonStyle(FillButton(major: false))
+            if CaptureSource.usesSystemPicker {
+                Text("Click Start and pick the Roblox window to share.")
+                    .font(.caption)
+                    .foregroundStyle(dim)
+            } else {
+                legacySourcePicker
             }
             Toggle("Keep Word Relay above other windows", isOn: $model.preferences.floating)
+        }
+    }
+
+    private var legacySourcePicker: some View {
+        HStack {
+            Picker("Capture source", selection: Binding(
+                get: { model.sourceID },
+                set: { model.selectWindow($0) }
+            )) {
+                Text("Roblox (automatic)").tag(nil as CGWindowID?)
+                ForEach(model.windows) { window in
+                    Text(window.name).tag(Optional(window.id))
+                }
+                if let choice = model.sourceID, !model.windows.contains(where: { $0.id == choice }) {
+                    Text("Previous selection").tag(Optional(choice))
+                }
+            }
+            .labelsHidden()
+            Button("Refresh") { model.refreshWindows() }.buttonStyle(FillButton(major: false))
         }
     }
 
@@ -564,8 +574,10 @@ private struct SettingsView: View {
                 Text("One or more shortcuts are used by another app. The window controls are still available.")
                     .font(.caption).foregroundStyle(amber)
             }
-            Button("Open Screen Recording settings") { model.openScreenSettings() }
-                .buttonStyle(FillButton(major: false))
+            if !CaptureSource.usesSystemPicker {
+                Button("Open Screen Recording settings") { model.openScreenSettings() }
+                    .buttonStyle(FillButton(major: false))
+            }
         }
     }
 

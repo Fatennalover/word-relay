@@ -25,6 +25,11 @@ enum CaptureIssue: LocalizedError {
 }
 
 enum CaptureSource {
+    static var usesSystemPicker: Bool {
+        if #available(macOS 15.2, *) { return true }
+        return false
+    }
+
     static func windows() async throws -> [SCWindow] {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         return content.windows.filter {
@@ -90,6 +95,7 @@ final class CaptureSink: NSObject, SCStreamOutput, SCStreamDelegate {
     private var playedRegion: ScanRegion?
     private let robloxHUD: Bool
     private var lastReading: Reading?
+    private var lastRaster: Raster?
     private var lastFrame = -Double.infinity
     private let update: (Reading, TimeInterval) -> Void
     private let failure: (Error) -> Void
@@ -109,6 +115,12 @@ final class CaptureSink: NSObject, SCStreamOutput, SCStreamDelegate {
             self.region = tiles
             self.playedRegion = played
             self.lastReading = nil
+        }
+    }
+
+    func snapshot() async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: self.lastRaster?.image()) }
         }
     }
 
@@ -153,10 +165,30 @@ final class CaptureSink: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         guard let raster else { return }
         let reading = reader.read(raster, region: region, now: now, playedRegion: playedRegion, robloxHUD: robloxHUD)
+        lastRaster = raster
         lastReading = reading
         lastFrame = now
         update(reading, now)
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) { failure(error) }
+}
+
+final class WindowPickerObserver: NSObject, SCContentSharingPickerObserver {
+    let complete: (Result<SCContentFilter?, Error>) -> Void
+
+    init(complete: @escaping (Result<SCContentFilter?, Error>) -> Void) {
+        self.complete = complete
+    }
+
+    func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
+        if stream == nil { complete(.success(nil)) }
+    }
+
+    func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter,
+                              for stream: SCStream?) {
+        if stream == nil { complete(.success(filter)) }
+    }
+
+    func contentSharingPickerStartDidFailWithError(_ error: Error) { complete(.failure(error)) }
 }

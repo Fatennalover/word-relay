@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Fatennalover/word-relay/releases/latest"><strong>Download Word Relay</strong></a>
+  <a href="#downloads"><strong>Download Word Relay</strong></a>
   · <a href="#start-a-match">Quick start</a>
   · <a href="#build-from-source">Build from source</a>
   · <a href="assets/word-relay-mark.svg">Logo</a>
@@ -13,16 +13,18 @@
 
 Word Relay reads letter tiles and finds English words that start with the full prefix. The bundled dictionary has **106,179 words** and works offline. Choose **1–100 suggestions per batch** and save **up to 100 custom words**.
 
-| Platform | Get it from [Releases](https://github.com/Fatennalover/word-relay/releases/latest) | How it works |
+## Downloads
+
+| Platform | Download | How it works |
 | --- | --- | --- |
-| **macOS** | Universal ZIP for macOS 14+ | Live Roblox window scanning, typed submission tracking, and screenshot lookup |
-| **Windows** | x64 or ARM64 portable ZIP | Live scanning of the visible Roblox window, typed submission tracking, and screenshot lookup |
-| **Android** | APK for Android 9+ (ARM64 and x64) | Android screen sharing, floating suggestions, and screenshot lookup. Mark words played in the app. |
-| **iPad** | Xcode project or prebuilt simulator ZIP | Import screenshots from Photos or Files, or enter letters manually. Mark words played in the app. |
+| **macOS** | [Universal ZIP for macOS 14+](https://github.com/Fatennalover/word-relay/releases/download/v1.3.1/Word-Relay-for-macOS-1.3.1.zip) | Live Roblox window scanning, typed submission tracking, and screenshot lookup |
+| **Windows** | [x64 ZIP](https://github.com/Fatennalover/word-relay/releases/download/v1.3.0/Word-Relay-for-Windows-x64-1.3.0.zip) · [ARM64 ZIP](https://github.com/Fatennalover/word-relay/releases/download/v1.3.0/Word-Relay-for-Windows-arm64-1.3.0.zip) | Live scanning of the visible Roblox window, typed submission tracking, and screenshot lookup |
+| **Android** | [APK for Android 9+](https://github.com/Fatennalover/word-relay/releases/download/v1.3.0/Word-Relay-for-Android-1.3.0.apk) (ARM64 and x64) | Android screen sharing, floating suggestions, and screenshot lookup. Mark words played in the app. |
+| **iPad** | [Simulator ZIP](https://github.com/Fatennalover/word-relay/releases/download/v1.3.0/Word-Relay-iPad-Simulator-1.3.0.zip) · [Xcode project](ipad/WordRelayPad.xcodeproj) | Import screenshots from Photos or Files, or enter letters manually. Mark words played in the app. |
 
 ## Start a match
 
-**macOS.** Extract the ZIP and open Word Relay. Allow Screen Recording for the live scanner. If you want typed submission tracking, enable Input Monitoring for Word Relay in macOS settings.
+**macOS.** Extract the ZIP, move Word Relay to Applications, and open it alongside Roblox. On macOS 15.2 or later, click **Start** and choose the Roblox window in Apple's window picker. On macOS 14 through 15.1, enable Word Relay under **Privacy & Security → Screen & System Audio Recording**, then quit and reopen it. Enable **Input Monitoring** separately if you want Word Relay to track words you submit in Roblox.
 
 **Windows.** Extract the ZIP for your PC and run `WordRelay.exe`. Keep Roblox visible in the foreground while scanning. The ZIP includes the .NET runtime.
 
