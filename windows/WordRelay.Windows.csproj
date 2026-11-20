@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>WordRelay</AssemblyName>
+    <RootNamespace>WordRelay</RootNamespace>
+    <Product>Word Relay</Product>
+    <Version>1.3.0</Version>
+    <ApplicationIcon>Assets/WordRelay.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../Resources/words.txt" LogicalName="words.txt" />
+    <EmbeddedResource Include="../Resources/words-extra.txt" LogicalName="words-extra.txt" />
+    <EmbeddedResource Include="Assets/glyphs.bin" LogicalName="glyphs.bin" />
+    <EmbeddedResource Include="Assets/WordRelay.ico" LogicalName="app.ico" />
+  </ItemGroup>
+</Project>

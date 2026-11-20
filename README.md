@@ -1,49 +1,57 @@
 <p align="center">
-  <img src="assets/word-relay-banner.svg" alt="Word Relay — live letter scanning and fast, offline suggestions" width="960">
+  <img src="assets/word-relay-banner.svg" alt="Word Relay. Live letter scanning and fast, offline suggestions." width="960">
 </p>
 
 <p align="center">
   <a href="https://github.com/Fatennalover/word-relay/releases/latest"><strong>Download Word Relay</strong></a>
   · <a href="#start-a-match">Quick start</a>
   · <a href="#build-from-source">Build from source</a>
+  · <a href="assets/word-relay-mark.svg">Logo</a>
 </p>
 
 # Word Relay
 
-Word Relay watches a Roblox window for the starting tiles and finds English words that start with them. It keeps the prompt steady while words are typed into the tile row. It includes 106,179 indexed English words and runs locally on macOS 14 or later.
+Word Relay reads letter tiles and finds English words that start with the full prefix. The bundled dictionary has **106,179 words** and works offline. Choose **1–100 suggestions per batch** and save **up to 100 custom words**.
 
-| Live scanner | Match history | Custom suggestions |
+| Platform | Get it from [Releases](https://github.com/Fatennalover/word-relay/releases/latest) | How it works |
 | --- | --- | --- |
-| Reads the whole tile row, including longer prompts | Tracks submissions and clears the match history when the game ends | Choose 1–100 suggestions and save up to 100 custom words |
-
-## Download
-
-Download the macOS app from [GitHub Releases](https://github.com/Fatennalover/word-relay/releases/latest). The bundle supports Apple silicon and Intel Macs running macOS 14 or later.
+| **macOS** | Universal ZIP for macOS 14+ | Live Roblox window scanning, typed submission tracking, and screenshot lookup |
+| **Windows** | x64 or ARM64 portable ZIP | Live scanning of the visible Roblox window, typed submission tracking, and screenshot lookup |
+| **Android** | APK for Android 9+ (ARM64 and x64) | Android screen sharing, floating suggestions, and screenshot lookup. Mark words played in the app. |
+| **iPad** | Xcode project or prebuilt simulator ZIP | Import screenshots from Photos or Files, or enter letters manually. Mark words played in the app. |
 
 ## Start a match
 
-1. Extract the ZIP and open **Word Relay.app**. Open Roblox in a regular window so the floating panel is easy to see.
-2. Click **Start** or press **Control–Shift–S**. If macOS asks for permission, allow **Word Relay** in **System Settings → Privacy & Security → Screen & System Audio Recording**, then reopen Word Relay if requested.
-3. Click a suggestion to copy it, then paste or type it in the game. **Next** cycles through batches of available words. A suggestion stays available until you submit it or mark it as played. Scroll the suggestions when your batch is larger than five.
-4. Press **Control–Shift–D** to stop scanning. Press **Control–Shift–N** or click **New match** to reset the match and its history.
+**macOS.** Extract the ZIP and open Word Relay. Allow Screen Recording for the live scanner. If you want typed submission tracking, enable Input Monitoring for Word Relay in macOS settings.
 
-## Track played words
+**Windows.** Extract the ZIP for your PC and run `WordRelay.exe`. Keep Roblox visible in the foreground while scanning. The ZIP includes the .NET runtime.
 
-- Open the gear and select **Allow Input Monitoring** under **Played words**. Turn on Word Relay in the macOS Input Monitoring pane and reopen it if macOS asks. Keep **Track words I submit in Roblox** enabled.
-- While Word Relay is scanning a turn, type your word and press **Return** in Roblox. The app assembles the word as you type, then logs matching dictionary or custom words on submission. The listener is scoped to the Roblox process and the current scanned turn.
-- The **Played** tab shows the source of each entry. A submission is an attempt, so use **Undo** there if the game rejects it. Right-click a suggestion and choose **Mark played**, or type a word in the history to log it manually.
-- If the game shows a last-played word (including an opponent's), you can also select **Settings → Scan areas → Played word → Preview window** and draw a tight box around that word. Word Relay can also recognize a complete typed row when its last letters become the next prompt. The optional scan area looks for a single word in two frames and labels detections **Seen on screen**. The placement and how long the game displays the word affect detection.
-- Your submissions and words you manually mark as played are excluded during the current match. Previewed, copied, and screen-observed words stay eligible unless you submit or mark them. A result banner clears both histories as soon as the match ends. In Roblox, three seconds without both the clock and the tiles also clears the histories. The configurable no-tiles timeout covers other layouts.
+On both desktop apps, use **Control–Shift–S** to start scanning, **Control–Shift–D** to stop, and **Control–Shift–N** for a new match.
 
-## Customize suggestions and timing
+**Android.** Install the APK and open Word Relay. Tap **Start scan**. Enable **Display over other apps** for floating suggestions, then select Roblox in Android’s sharing dialog. On versions that offer sharing one app, select Roblox to limit the capture to its window. Tap the overlay’s close button, the in-app **Stop scan** button, or the Android sharing notification to stop. You can long-press a suggestion to mark it played.
 
-- Under **Suggestions**, set **Words per batch** from 1 to 100. The default is five. **Custom words** accepts up to 100 entries. Set **Custom words per batch** from 0 to 100 to control how many matching custom entries can appear in each batch.
-- The game clock is used when readable. **Timing** lets you change the fallback timer and the no-tiles timeout. The scanner reads the full starting row, including prompts longer than two letters. The current suggestions stay visible through brief tile dropouts while the game clock is active.
-- If the scanner misses the tiles after the window layout changes, go to **Settings → Scan areas → Letter tiles → Preview window** and draw around the tiles. Leave room for longer prefixes and turn animations.
-- Type a prefix into **Enter letters**, or use the photo button to read a screenshot while the scanner is off.
+**iPad.** Open the Xcode project and run it on an iPad simulator. Choose **Photos** or **Files** to read the letter tiles from an image, or type the prefix. Long-press a suggestion to mark it played. This edition uses image imports and manual lookup.
+
+<details>
+<summary>iPad simulator preview</summary>
+
+<img src="assets/ipad-preview.png" alt="Word Relay on an iPad with five BOX suggestions" width="390">
+
+</details>
+
+## Suggestions and match history
+
+Tap a word to copy it. **Next** cycles through batches of available suggestions. A word remains eligible until you submit it with desktop tracking enabled or mark it as played. Use **Undo** in match history if a word was rejected. Desktop and Android live scans keep the current suggestions visible through brief tile dropouts while the game clock is visible. Live match detection clears history when the game ends, and **New match** resets it manually.
 
 ## Build from source
 
-Run `bash build.sh` on a Mac with Xcode command-line tools. The script builds a universal app under `build/` or a directory passed as its first argument.
+| Platform | Build |
+| --- | --- |
+| **macOS** | Run `bash build.sh` with Xcode command-line tools. |
+| **Windows** | Run `dotnet publish windows/WordRelay.Windows.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true` with .NET 10. Use `win-arm64` for ARM64. |
+| **Android** | Install the .NET 10 Android workload, Android SDK 36, and JDK 17 or later. Run `dotnet build android/WordRelay.Android.csproj -c Release`. |
+| **iPad** | Open `ipad/WordRelayPad.xcodeproj` in Xcode, select an iPad simulator, and run the **WordRelayPad** scheme. For a physical iPad build, select your development team in **Signing & Capabilities**. |
 
-The word lists come from the [English Speller Database](https://github.com/en-wl/wordlist), release 2026.02.25, including additional headwords from its large US dictionary. Its copyright notice and Fredoka's Open Font License are included in `Resources/` and in the app.
+The dictionary is based on the [English Speller Database](https://github.com/en-wl/wordlist), release 2026.02.25. The license notices for the [dictionary](Resources/ESDB-Copyright.txt) and [Fredoka](Resources/Fredoka-OFL.txt) are included in the source.
+
+Word Relay is an independent companion app. Screen and image recognition run on the device.

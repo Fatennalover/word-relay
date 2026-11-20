@@ -1,3 +1,9 @@
 .DS_Store
 build/
 *.app/
+
+**/bin/
+**/obj/
+DerivedData/
+xcuserdata/
+*.xcuserstate

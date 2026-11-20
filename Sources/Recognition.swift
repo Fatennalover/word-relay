@@ -1,4 +1,10 @@
+#if os(macOS)
 import AppKit
+#else
+import Foundation
+import CoreGraphics
+import CoreVideo
+#endif
 import CoreMedia
 import CoreText
 import Vision
