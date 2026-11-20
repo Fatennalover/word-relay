@@ -133,9 +133,10 @@ public sealed class ProjectionService : Service
 
     private void CaptureFrame(ImageReader imageSource)
     {
+        global::Android.Media.Image? frame = null;
         try
         {
-            using var frame = imageSource.AcquireLatestImage();
+            frame = imageSource.AcquireLatestImage();
             double now = RelayStore.Time;
             if (frame is null || ending || !contentVisible || now < nextFrame) return;
             nextFrame = now + .135;
@@ -166,6 +167,11 @@ public sealed class ProjectionService : Service
         }
         catch (Java.Lang.IllegalStateException) { }
         catch (Java.Lang.IllegalArgumentException) { }
+        finally
+        {
+            frame?.Close();
+            frame?.Dispose();
+        }
     }
 
     private void Resize(int width, int height)
