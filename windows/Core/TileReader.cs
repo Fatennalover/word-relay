@@ -3,7 +3,8 @@ using System.Drawing;
 
 namespace WordRelay.Core;
 
-public readonly record struct Reading(string? Row, bool TilesPresent, bool ClockVisible, double? Seconds = null);
+public readonly record struct Reading(string? Row, bool TilesPresent, bool ClockVisible,
+    double? Seconds = null, int? Mistakes = null);
 
 public sealed class TileReader
 {
@@ -54,7 +55,8 @@ public sealed class TileReader
             seconds = ReadClock(frame, face);
         }
         var row = letters.Count > 0 && letters.Count == tiles.Count ? new string(letters.ToArray()) : null;
-        return new Reading(row, tiles.Count > 0, clock.HasValue, seconds);
+        return new Reading(row, tiles.Count > 0, clock.HasValue, seconds,
+            clock.HasValue ? MistakeBadges(frame) : null);
     }
 
     private static List<Rectangle> FindTiles(Raster frame, ScanArea area)
@@ -95,7 +97,7 @@ public sealed class TileReader
                 span = Rectangle.Union(span, next);
             }
             double center = (span.Left + span.Right) * .5;
-            if (Math.Abs(center - cx) > Math.Max(first.Width * .52, zone.Width * .031)) continue;
+            if (Math.Abs(center - cx) > first.Width * .47) continue;
             double score = (row.Count - 1) * .45 - Math.Abs(center - cx) / zone.Width * 4.5
                 - Math.Abs(MidY(span) - cy) / zone.Height * 1.5 - Math.Abs(Math.Log(first.Height / target)) * .65;
             if (score <= bestScore) continue;
@@ -103,6 +105,44 @@ public sealed class TileReader
             best = row;
         }
         return best;
+    }
+
+    private static int? MistakeBadges(Raster frame)
+    {
+        ReadOnlySpan<double> steps = [.101, .106, .111, .116, .121];
+        ReadOnlySpan<double> offsetsX = [-.021, -.010, .010, .021];
+        ReadOnlySpan<double> offsetsY = [-.015, 0, .015];
+        double center = frame.Width * .5, height = frame.Height;
+        int? result = null;
+        int best = 0;
+        for (int row = 0; row < 19; row++)
+        {
+            double y = (.854 + row * .0045) * height;
+            foreach (double spacing in steps)
+            {
+                int marks = 0, strength = 0;
+                bool foundInactive = false;
+                for (int column = -2; column <= 2; column++)
+                {
+                    double x = center + column * spacing * height;
+                    int muted = 0, active = 0;
+                    foreach (double dy in offsetsY)
+                    foreach (double dx in offsetsX)
+                    {
+                        int xx = (int)(x + dx * height), yy = (int)(y + dy * height);
+                        if (xx < 0 || xx >= frame.Width || yy < 0 || yy >= frame.Height) continue;
+                        byte badge = frame.Badge[yy * frame.Width + xx];
+                        if (badge == 1) muted++;
+                        if (badge == 2) active++;
+                    }
+                    if (active >= 6 && !foundInactive) { marks++; strength += active; }
+                    else if (muted >= 7) { foundInactive = true; strength += muted; }
+                    else { strength = 0; break; }
+                }
+                if (strength > best) { best = strength; result = marks; }
+            }
+        }
+        return result;
     }
 
     private static double MidY(Rectangle r) => r.Top + r.Height * .5;

@@ -25,7 +25,7 @@ private final class GlobalShortcuts {
             return noErr
         }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), &handler)
         guard result == noErr else { return }
-        let keys = [kVK_ANSI_S, kVK_ANSI_D, kVK_ANSI_N]
+        let keys = [kVK_ANSI_S, kVK_ANSI_D, kVK_ANSI_N, kVK_ANSI_W]
         let modifiers = UInt32(controlKey | shiftKey)
         for (index, key) in keys.enumerated() {
             var reference: EventHotKeyRef?
@@ -83,6 +83,7 @@ private final class WordRelayDelegate: NSObject, NSApplicationDelegate {
                 case 1: self?.dashboard.start()
                 case 2: self?.dashboard.stop()
                 case 3: self?.dashboard.newMatch()
+                case 4: self?.dashboard.requestAnswer()
                 default: break
                 }
             }

@@ -8,8 +8,8 @@
     <RootNamespace>WordRelay.Mobile</RootNamespace>
     <ApplicationId>local.wordrelay.android</ApplicationId>
     <ApplicationTitle>Word Relay</ApplicationTitle>
-    <ApplicationVersion>10300</ApplicationVersion>
-    <ApplicationDisplayVersion>1.3.0</ApplicationDisplayVersion>
+    <ApplicationVersion>10400</ApplicationVersion>
+    <ApplicationDisplayVersion>1.4.0</ApplicationDisplayVersion>
     <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers>
     <AndroidPackageFormats>apk</AndroidPackageFormats>
     <RunAOTCompilation>false</RunAOTCompilation>

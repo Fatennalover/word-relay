@@ -35,13 +35,15 @@ struct Raster {
     var gray: [UInt8]
     var white: [UInt8]
     var blue: [UInt8]
+    var badge: [UInt8]
 
-    init(width: Int, height: Int, gray: [UInt8], white: [UInt8] = [], blue: [UInt8] = []) {
+    init(width: Int, height: Int, gray: [UInt8], white: [UInt8] = [], blue: [UInt8] = [], badge: [UInt8] = []) {
         self.width = width
         self.height = height
         self.gray = gray
         self.white = white
         self.blue = blue
+        self.badge = badge
     }
 
     init?(buffer: CVPixelBuffer) {
@@ -73,6 +75,7 @@ struct Raster {
         var gray = [UInt8](repeating: 0, count: width * height)
         var white = gray
         var blue = gray
+        var badge = gray
         for y in 0..<height {
             let row = bgra + y * stride
             for x in 0..<width {
@@ -81,9 +84,16 @@ struct Raster {
                 let low = min(r, g, b)
                 white[y * width + x] = low >= 224 && max(r, g, b) - low < 23 ? 1 : 0
                 blue[y * width + x] = b >= 163 && g >= 112 && b - r >= 24 && b - g >= 12 ? 1 : 0
+                if y >= height * 4 / 5 {
+                    if (145...245).contains(r) && r - g >= 107 && (6...42).contains(b - g) {
+                        badge[y * width + x] = 2
+                    } else if (145...235).contains(r) && (65...104).contains(r - g) && abs(b - g) <= 8 {
+                        badge[y * width + x] = 1
+                    }
+                }
             }
         }
-        self.init(width: width, height: height, gray: gray, white: white, blue: blue)
+        self.init(width: width, height: height, gray: gray, white: white, blue: blue, badge: badge)
     }
 
     func cropped(to rect: CGRect, includeWhite: Bool = false) -> Raster? {
@@ -339,7 +349,8 @@ final class TileReader {
         }
         let playedWord = playedWord(in: raster, region: playedRegion, now: now)
         return Reading(prefix: prefix, tilesPresent: !tiles.isEmpty, seconds: seconds, result: recentResult,
-                       playedWord: playedWord, clockVisible: clockVisible)
+                       playedWord: playedWord, clockVisible: clockVisible,
+                       mistakes: robloxHUD && clockVisible == true ? mistakeBadges(in: raster) : nil)
     }
 
     private func hasClockFace(in raster: Raster) -> Bool {
@@ -445,7 +456,7 @@ final class TileReader {
         let centered = rows.filter { row in
             guard let first = row.first, let last = row.last else { return false }
             let center = (first.minX + last.maxX) / 2
-            return abs(center - cx) <= max(first.width * 0.52, zone.width * 0.031)
+            return abs(center - cx) <= first.width * 0.47
         }
         func score(_ row: [CGRect]) -> Double {
             let area = row.dropFirst().reduce(row[0]) { $0.union($1) }
@@ -454,6 +465,42 @@ final class TileReader {
                 - abs(log(row[0].height / target)) * 0.65
         }
         return centered.max { score($0) < score($1) } ?? []
+    }
+
+    private func mistakeBadges(in raster: Raster) -> Int? {
+        guard !raster.badge.isEmpty else { return nil }
+        let scale = Double(raster.height)
+        let center = Double(raster.width) / 2
+        var result: Int?
+        var best = 0
+        for row in 0..<19 {
+            let y = (0.854 + Double(row) * 0.0045) * scale
+            for spacing in [0.101, 0.106, 0.111, 0.116, 0.121] {
+                var marks = 0
+                var strength = 0
+                var foundInactive = false
+                for column in -2...2 {
+                    let centerX = center + Double(column) * spacing * scale
+                    var muted = 0
+                    var active = 0
+                    for dy in [-0.015, 0.0, 0.015] {
+                        for dx in [-0.021, -0.010, 0.010, 0.021] {
+                            let x = Int(centerX + dx * scale)
+                            let yy = Int(y + dy * scale)
+                            guard (0..<raster.width).contains(x), (0..<raster.height).contains(yy) else { continue }
+                            let badge = raster.badge[yy * raster.width + x]
+                            if badge == 1 { muted += 1 }
+                            if badge == 2 { active += 1 }
+                        }
+                    }
+                    if active >= 6 && !foundInactive { marks += 1; strength += active }
+                    else if muted >= 7 { foundInactive = true; strength += muted }
+                    else { strength = 0; break }
+                }
+                if strength > best { best = strength; result = marks }
+            }
+        }
+        return result
     }
 
     private func recognize(_ glyphs: [TileGlyph]) -> String? {

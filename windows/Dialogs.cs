@@ -6,7 +6,7 @@ internal sealed class SettingsWindow : Form
 {
     private readonly NumericUpDown count, minimum, customLimit, turn, end;
     private readonly TextBox custom;
-    private readonly CheckBox top, track;
+    private readonly CheckBox top, track, suffix;
     private readonly Label status;
     public Settings Value { get; private set; }
 
@@ -25,11 +25,11 @@ internal sealed class SettingsWindow : Form
 
         var content = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, Padding = new Padding(17), ColumnCount = 2, RowCount = 12
+            Dock = DockStyle.Fill, Padding = new Padding(17), ColumnCount = 2, RowCount = 13
         };
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70));
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
-        foreach (int height in new[] { 31, 30, 30, 30, 30, 30, 27, 27, 28, 0, 28, 40 })
+        foreach (int height in new[] { 31, 30, 30, 30, 30, 30, 27, 27, 27, 28, 0, 40, 40 })
             content.RowStyles.Add(height > 0 ? new RowStyle(SizeType.Absolute, height) : new RowStyle(SizeType.Percent, 100));
         Control Wide(Control widget, int row)
         {
@@ -63,16 +63,18 @@ internal sealed class SettingsWindow : Form
         track = new CheckBox { Text = "Track my typed submissions in Roblox", Checked = settings.TrackWords };
         Wide(top, 6);
         Wide(track, 7);
-        Wide(Theme.Label("Custom words (up to 100)", 10, true), 8);
+        suffix = new CheckBox { Text = "Type only the letters after the prompt", Checked = settings.SkipTypedPrefix };
+        Wide(suffix, 8);
+        Wide(Theme.Label("Custom words (up to 100)", 10, true), 9);
         custom = Theme.Field("One word per line, or separated with commas");
         custom.Multiline = true;
         custom.ScrollBars = ScrollBars.Vertical;
         custom.Text = string.Join(Environment.NewLine, settings.Custom ?? []);
         custom.AccessibleName = "Custom words";
-        Wide(custom, 9);
+        Wide(custom, 10);
         status = Theme.Label(shortcutConflict ? "One or more global shortcuts are already in use." :
-            "Start Ctrl+Shift+S   ·   Stop Ctrl+Shift+D   ·   New Ctrl+Shift+N", 8, false, Theme.Dim);
-        Wide(status, 10);
+            "Start Ctrl+Shift+S   ·   Stop Ctrl+Shift+D   ·   New Ctrl+Shift+N\nType an answer on your turn with Ctrl+Shift+W", 8, false, Theme.Dim);
+        Wide(status, 11);
 
         var buttons = Theme.Row(FlowDirection.RightToLeft);
         var save = Theme.Button("Save", (_, _) => Apply(), true);
@@ -80,7 +82,7 @@ internal sealed class SettingsWindow : Form
         buttons.Controls.AddRange([save, cancel]);
         AcceptButton = save;
         CancelButton = cancel;
-        Wide(buttons, 11);
+        Wide(buttons, 12);
         Controls.Add(content);
     }
 
@@ -94,7 +96,7 @@ internal sealed class SettingsWindow : Form
             return;
         }
         Value = new Settings((int)count.Value, (int)minimum.Value, (int)customLimit.Value, words,
-            (int)turn.Value, (int)end.Value, top.Checked, track.Checked);
+            (int)turn.Value, (int)end.Value, top.Checked, track.Checked, suffix.Checked);
         DialogResult = DialogResult.OK;
         Close();
     }
@@ -187,6 +189,7 @@ internal sealed class HistoryWindow : Form
             PlayedOrigin.Manual => "Marked manually",
             PlayedOrigin.Confirmed => "Submitted and seen",
             PlayedOrigin.Observed => "Seen on screen",
+            PlayedOrigin.BoardAccepted => "Accepted on the board",
             _ => "Submitted"
         }}";
     }

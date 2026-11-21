@@ -14,6 +14,7 @@ struct Preferences: Codable, Equatable {
     var customLimit: Int?
     var trackSubmissions: Bool?
     var playedRegion: ScanRegion?
+    var typeSuffixOnly: Bool?
 
     var wordOptions: WordOptions {
         WordOptions(minimumLength: minimumLength, count: min(100, max(1, suggestionCount ?? 5)),
@@ -21,6 +22,7 @@ struct Preferences: Codable, Equatable {
     }
 
     var tracksKeyboard: Bool { trackSubmissions ?? true }
+    var skipsTypedPrefix: Bool { typeSuffixOnly ?? true }
 }
 
 enum WatchState: Equatable {
@@ -40,6 +42,7 @@ final class Dashboard: ObservableObject {
     @Published private(set) var previewBusy = false
     @Published private(set) var hotkeysAvailable = true
     @Published private(set) var keyboardStatus: KeyboardStatus = .inactive
+    @Published private(set) var answerStatus: String?
     @Published var sourceID: CGWindowID?
     @Published var preferences: Preferences {
         didSet {
@@ -82,6 +85,8 @@ final class Dashboard: ObservableObject {
     private var submissionPid: pid_t?
     private var focusObserver: NSObjectProtocol?
     private var ownedClipboard: (word: String, change: Int)?
+    private var recentTurnChange: TimeInterval?
+    private var typeRequest: Task<Void, Never>?
 
     enum KeyboardStatus: Equatable {
         case inactive, needsPermission, listening, unavailable
@@ -131,6 +136,11 @@ final class Dashboard: ObservableObject {
         stream = nil
         sink = nil
         submissionPid = nil
+        recentTurnChange = nil
+        typeRequest?.cancel()
+        typeRequest = nil
+        answerStatus = nil
+        engine.cancelRetry()
         stopSubmissionListener()
         keyboardStatus = .inactive
         lastCaptureAt = nil
@@ -148,6 +158,7 @@ final class Dashboard: ObservableObject {
         engine = Match()
         submissionListener?.clearDraft()
         lastReading = nil
+        answerStatus = nil
         publishMatch()
     }
 
@@ -197,6 +208,51 @@ final class Dashboard: ObservableObject {
         ) {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    func requestAnswer() {
+        guard watch == .watching, let pid = submissionPid,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+        guard CGPreflightPostEventAccess() else {
+            _ = CGRequestPostEventAccess()
+            answerStatus = "Allow Word Relay in Accessibility to type answers."
+            return
+        }
+        let turn = engine.turns
+        typeRequest?.cancel()
+        typeRequest = Task {
+            // Let the user release Control and Shift before sending key events.
+            for _ in 0..<15 {
+                try? await Task.sleep(for: .milliseconds(35))
+                guard !Task.isCancelled, engine.turns == turn else { return }
+                if CGEventSource.flagsState(.combinedSessionState)
+                    .intersection([.maskCommand, .maskControl, .maskShift, .maskAlternate]).isEmpty {
+                    typeAnswer(retry: false)
+                    return
+                }
+            }
+        }
+    }
+
+    private func typeAnswer(retry: Bool) {
+        guard watch == .watching, let pid = submissionPid, let lastCaptureAt,
+              Self.now - lastCaptureAt < 0.5,
+              lastReading?.mistakes != nil,
+              engine.canType(row: lastReading?.prefix, at: Self.now) else { return }
+        guard let word = engine.nextAutomaticWord(skipPrefix: preferences.skipsTypedPrefix,
+              lexicon: lexicon, options: preferences.wordOptions) else {
+            if retry { engine.cancelRetry() }
+            answerStatus = "No untried suggestion for this turn."
+            return
+        }
+        let text = preferences.skipsTypedPrefix ? String(word.dropFirst(engine.prefix.count)) : word
+        guard AnswerTyping.type(text, in: pid) else { return }
+        typeRequest?.cancel()
+        typeRequest = nil
+        submissionListener?.clearDraft()
+        engine.submit(word, now: Self.now, automatic: true, lexicon: lexicon, options: preferences.wordOptions)
+        answerStatus = "Sent \(word) · waiting for the game"
+        publishMatch()
     }
 
     func refreshWindows() {
@@ -384,12 +440,16 @@ final class Dashboard: ObservableObject {
     private func checkCapture(startedAt: TimeInterval, token: UUID) {
         guard generation == token else { return }
         let now = Self.now
+        if keyboardStatus == .needsPermission, CGPreflightListenEventAccess() {
+            configureSubmissionListener()
+        }
         if now - (lastCaptureAt ?? startedAt) >= 3 {
             message = "Waiting for a visible \(sourceName) window."
         }
         // ScreenCaptureKit may stop sending frames when a scene becomes completely still.
         if var reading = lastReading, !reading.tilesPresent {
             reading.playedWord = nil
+            reading.mistakes = nil
             receive(reading, now: now, token: token, actualFrame: false)
         }
     }
@@ -408,10 +468,19 @@ final class Dashboard: ObservableObject {
         }
         engine.ingest(reading, now: now, endAfter: Double(preferences.endSeconds), lexicon: lexicon,
                       options: preferences.wordOptions)
-        if engine.turns != turn || phase != engine.phase && engine.phase != .turn {
+        if engine.turns != turn {
+            recentTurnChange = now
+            submissionListener?.turnChanged()
+            answerStatus = nil
+        }
+        if engine.phase == .waiting || engine.phase == .finished {
             submissionListener?.clearDraft()
         }
         publishMatch()
+        if engine.canRetry(at: now) {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier != submissionPid { engine.cancelRetry() }
+            else if actualFrame { typeAnswer(retry: true) }
+        }
     }
 
     private func configureSubmissionListener() {
@@ -426,15 +495,29 @@ final class Dashboard: ObservableObject {
         }
         let listener = SubmissionListener(pid: pid, canRead: { [weak self] in
             guard let self, self.watch == .watching,
-                  let frameAt = self.lastCaptureAt, Self.now - frameAt < 0.6,
-                  self.lastReading?.prefix != nil || self.engine.hasLiveClock(at: Self.now) else { return false }
+                  !self.engine.prefix.isEmpty,
+                  let frameAt = self.lastCaptureAt, Self.now - frameAt < 3 else { return false }
             return self.engine.phase == .turn || self.engine.phase == .between
         }, pastedSuggestion: { [weak self] in
             guard let clipboard = self?.ownedClipboard,
                   clipboard.change == NSPasteboard.general.changeCount else { return nil }
             return clipboard.word
-        }) { [weak self] word in
-            self?.acceptTrackedWord(word, source: .submitted)
+        }) { [weak self] draft, fromPreviousTurn in
+            guard let self else { return }
+            if fromPreviousTurn && self.recentTurnChange.map({ Self.now - $0 < 0.7 }) != true { return }
+            let prefix = fromPreviousTurn ? self.engine.previousPrefix : self.engine.prefix
+            guard let word = WordOptions.submittedWord(draft, prefix: prefix,
+                displayedRow: self.lastReading?.prefix?.lowercased(),
+                isKnown: { self.lexicon.contains($0) || self.preferences.wordOptions.custom.contains($0) })
+            else { return }
+            if fromPreviousTurn {
+                self.engine.record(word, source: .submitted, lexicon: self.lexicon,
+                                   options: self.preferences.wordOptions)
+            } else {
+                self.engine.submit(word, now: Self.now, automatic: false, lexicon: self.lexicon,
+                                   options: self.preferences.wordOptions)
+            }
+            self.publishMatch()
         }
         guard listener.start() else {
             keyboardStatus = .unavailable
@@ -478,6 +561,7 @@ final class Dashboard: ObservableObject {
         if match.phase != engine.phase || match.prefix != engine.prefix || match.history.count != engine.history.count ||
             match.suggestions != engine.suggestions || match.canCycleSuggestions != engine.canCycleSuggestions ||
             match.turns != engine.turns || match.played != engine.played ||
+            match.usedCount != engine.usedCount ||
             match.clockObservedAt != engine.clockObservedAt || match.finishReason != engine.finishReason {
             match = engine
         }

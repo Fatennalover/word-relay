@@ -22,6 +22,20 @@ struct WordOptions {
             .compactMap { normalize(String($0)) }
             .filter { seen.insert($0).inserted }
     }
+
+    static func submittedWord(_ draft: String, prefix: String, displayedRow: String?,
+                              isKnown: (String) -> Bool) -> String? {
+        guard !prefix.isEmpty, !draft.isEmpty,
+              draft.utf8.allSatisfy({ (97...122).contains($0) }) else { return nil }
+        let full = normalize(draft)
+        let completion = draft.hasPrefix(prefix) ? nil : normalize(prefix + draft)
+        if let row = displayedRow.flatMap(normalize), row.hasPrefix(prefix),
+           (row == full || row == completion), isKnown(row) {
+            return row
+        }
+        if let full, full.hasPrefix(prefix), isKnown(full) { return full }
+        return completion.flatMap { isKnown($0) ? $0 : nil }
+    }
 }
 
 struct Lexicon {
@@ -87,6 +101,7 @@ struct Reading {
     var result: String? = nil
     var playedWord: String? = nil
     var clockVisible: Bool? = nil
+    var mistakes: Int? = nil
 }
 
 enum PlayedSource: String {
@@ -94,11 +109,13 @@ enum PlayedSource: String {
     case onScreen = "Seen on screen"
     case confirmed = "Submitted · seen on screen"
     case manual = "Marked manually"
+    case boardAccepted = "Accepted on the board"
 
     func merged(with observation: PlayedSource) -> PlayedSource {
         switch (self, observation) {
         case (.submitted, .onScreen), (.onScreen, .submitted): return .confirmed
         case (.onScreen, .manual): return .manual
+        case (.onScreen, .boardAccepted), (.submitted, .boardAccepted): return .boardAccepted
         default: return self
         }
     }
@@ -142,6 +159,71 @@ struct Match {
     private var transitionGap = 0.0
     private var finishedAt: TimeInterval?
     private var stableTypedWord: String?
+    private var attemptedThisTurn = Set<String>()
+    private var rejectedThisTurn = Set<String>()
+    private var pending: (word: String, time: TimeInterval, strikes: Int, automatic: Bool)?
+    private var rejectionFrames = 0
+    private(set) var mistakes: Int?
+    private var retryAt: TimeInterval?
+
+    var canRetry: Bool { retryAt != nil && attemptedThisTurn.count < 3 }
+    func canRetry(at now: TimeInterval) -> Bool {
+        canRetry && now - (retryAt ?? now) <= 1.2
+    }
+
+    func canType(row: String?, at now: TimeInterval) -> Bool {
+        phase == .turn && !prefix.isEmpty && candidateFrames >= 2 && row?.lowercased() == prefix &&
+            pending?.automatic != true && hasLiveClock(at: now) &&
+            (!countdownWasRead || remainingTime(at: now) > 0.8)
+    }
+
+    private var countdownWasRead: Bool { observedClock != nil && clockObservedAt != nil }
+
+    private func remainingTime(at now: TimeInterval) -> Double {
+        (observedClock ?? 0) - (now - (clockObservedAt ?? now))
+    }
+
+    func nextAutomaticWord(skipPrefix: Bool, lexicon: Lexicon, options: WordOptions) -> String? {
+        var excluded = usedWords.union(rejectedThisTurn).union(attemptedThisTurn)
+        if skipPrefix { excluded.insert(prefix) }
+        if let suggestion = suggestions.first(where: { !excluded.contains($0) }) { return suggestion }
+        return lexicon.matching(prefix, excluding: excluded, options: options, limit: 1, current: []).first
+    }
+
+    mutating func submit(_ word: String, now: TimeInterval, automatic: Bool,
+                         lexicon: Lexicon, options: WordOptions) {
+        retryAt = nil
+        let alreadyUsed = usedWords.contains(word)
+        if automatic { attemptedThisTurn.insert(word) }
+        else { record(word, source: .submitted, lexicon: lexicon, options: options) }
+        pending = alreadyUsed ? nil : mistakes.map { (word, now, $0, automatic) }
+        rejectionFrames = 0
+    }
+
+    mutating func cancelRetry() {
+        retryAt = nil
+        if pending?.automatic == true { pending = nil }
+    }
+
+    private mutating func observeMistakes(_ count: Int?, now: TimeInterval, lexicon: Lexicon, options: WordOptions) {
+        if let count, let old = mistakes, count > old {
+            if let word = stableTypedWord { rejectedThisTurn.insert(word) }
+            stableTypedWord = nil
+        }
+        if let count { mistakes = count }
+        guard let pending else { return }
+        guard now - pending.time <= 2.1 else { self.pending = nil; return }
+        if let count, count > pending.strikes { rejectionFrames += 1 }
+        else { rejectionFrames = 0 }
+        guard rejectionFrames >= 2 else { return }
+        self.pending = nil
+        rejectedThisTurn.insert(pending.word)
+        stableTypedWord = nil
+        removePlayed(pending.word, lexicon: lexicon, options: options)
+        suggestions.removeAll { $0 == pending.word }
+        fillSuggestions(lexicon: lexicon, options: options)
+        retryAt = pending.automatic ? now : nil
+    }
 
     mutating func ingest(
         _ reading: Reading, now: TimeInterval, endAfter: Double, lexicon: Lexicon,
@@ -152,6 +234,7 @@ struct Match {
             candidateFrames = 0
             return
         }
+        observeMistakes(reading.mistakes, now: now, lexicon: lexicon, options: options)
 
         let liveClock = reading.clockVisible == true || ((reading.seconds ?? 0) > 0)
         if liveClock {
@@ -208,7 +291,8 @@ struct Match {
             $0 != observed && observed != prefix && $0.hasSuffix(observed)
         } ?? false
         let changed = !same && !growing && !shrinking
-        let distinct = changed && candidateFrames >= 3 && now - candidateSince >= 0.19
+        let shorter = observed.count < prefix.count
+        let distinct = changed && !shorter && candidateFrames >= 3 && now - candidateSince >= 0.19
 
         // A settled row can have any length. Typing grows the active row; a new
         // turn can legitimately start with those same letters plus more tiles.
@@ -216,15 +300,21 @@ struct Match {
         let newPrompt = phase == .waiting || freshReset || carryover || distinct ||
             (gap && (changed || phase == .between))
         if newPrompt {
-            if carryover, let word = stableTypedWord {
-                record(word, source: .onScreen, lexicon: lexicon, options: options)
+            if let word = stableTypedWord, carryover || freshReset && word == observed {
+                let accepted = (freshReset || gap) && reading.mistakes != nil && rejectionFrames == 0
+                record(word, source: accepted ? .boardAccepted : .onScreen, lexicon: lexicon, options: options)
+            }
+            if freshReset || gap, let pending, pending.automatic, rejectionFrames == 0,
+               pending.word.hasSuffix(observed) || stableTypedWord == pending.word {
+                record(pending.word, source: .boardAccepted, lexicon: lexicon, options: options)
             }
             let seconds = reading.seconds ?? observedClock.flatMap { sample in
                 clockObservedAt.flatMap { time in now - time <= 0.38 ? max(0, sample - (now - time)) : nil }
             }
             startTurn(observed, now: now, seconds: seconds, lexicon: lexicon, options: options)
         } else {
-            if growing, lexicon.contains(observed) || options.custom.contains(observed) {
+            if growing, !rejectedThisTurn.contains(observed),
+               lexicon.contains(observed) || options.custom.contains(observed) {
                 stableTypedWord = observed
             }
             if phase == .between { phase = .turn }
@@ -281,6 +371,11 @@ struct Match {
         clockResetAt = nil
         transitionGap = 0
         stableTypedWord = nil
+        attemptedThisTurn.removeAll()
+        rejectedThisTurn.removeAll()
+        pending = nil
+        rejectionFrames = 0
+        retryAt = nil
         finishReason = nil
         restartSuggestions(lexicon: lexicon, options: options)
     }
@@ -314,11 +409,12 @@ struct Match {
             retained.append(word)
         }
         suggestions = retained
-        let added = lexicon.matching(prefix, excluding: usedWords.union(earlierBatches).union(suggestions),
+        let unavailable = usedWords.union(rejectedThisTurn)
+        let added = lexicon.matching(prefix, excluding: unavailable.union(earlierBatches).union(suggestions),
                                      options: options, limit: capacity - suggestions.count, current: suggestions)
         suggestions.append(contentsOf: added)
         for word in added where shown.insert(word).inserted { history.append(word) }
-        canCycleSuggestions = !lexicon.matching(prefix, excluding: usedWords.union(suggestions),
+        canCycleSuggestions = !lexicon.matching(prefix, excluding: unavailable.union(suggestions),
                                                 options: options, limit: 1, current: []).isEmpty
     }
 
@@ -362,5 +458,8 @@ struct Match {
         observedClock = nil
         clockObservedAt = nil
         stableTypedWord = nil
+        pending = nil
+        retryAt = nil
+        mistakes = nil
     }
 }

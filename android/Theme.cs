@@ -53,6 +53,22 @@ internal static class RelayTheme
     internal static LinearLayout Stack(Context context, bool horizontal = false) =>
         new(context) { Orientation = horizontal ? global::Android.Widget.Orientation.Horizontal : global::Android.Widget.Orientation.Vertical };
 
+    internal static LinearLayout Suggestion(Context context, string word, Action copy, Action mark, int height)
+    {
+        var row = Stack(context, true);
+        var label = Button(context, word, copy);
+        label.SetSingleLine();
+        label.Gravity = GravityFlags.Left | GravityFlags.CenterVertical;
+        label.LongClick += (_, e) => { mark(); e.Handled = true; };
+        row.AddView(label, new LinearLayout.LayoutParams(0, Dp(context, height), 1));
+        var played = Button(context, "✓", mark);
+        played.ContentDescription = $"Mark {word} played";
+        played.SetMinWidth(0);
+        var size = new LinearLayout.LayoutParams(Dp(context, 42), Dp(context, height)) { LeftMargin = Dp(context, 4) };
+        row.AddView(played, size);
+        return row;
+    }
+
     internal static void Gap(LinearLayout layout, Context context, int value) =>
         layout.AddView(new View(context), new LinearLayout.LayoutParams(-1, Dp(context, value)));
 

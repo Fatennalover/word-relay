@@ -65,7 +65,7 @@ public sealed class Lexicon
 }
 
 public enum MatchPhase { Waiting, Turn, Between, Finished }
-public enum PlayedOrigin { Submitted, Observed, Confirmed, Manual }
+public enum PlayedOrigin { Submitted, Observed, Confirmed, Manual, BoardAccepted }
 public sealed record Played(string Word, PlayedOrigin Origin);
 
 public sealed class Match
@@ -80,6 +80,13 @@ public sealed class Match
     private string candidate = "";
     private int repeats;
     private string? typedWord;
+    private double transitionGap;
+    private readonly HashSet<string> attemptedThisTurn = new(StringComparer.Ordinal);
+    private readonly HashSet<string> rejectedThisTurn = new(StringComparer.Ordinal);
+    private (string Word, double Time, int Strikes, bool Automatic)? pending;
+    private int rejectionFrames;
+    private int? mistakes;
+    private double? retryAt;
     private SuggestionOptions options;
 
     public Match(Lexicon lexicon, SuggestionOptions options)
@@ -108,9 +115,27 @@ public sealed class Match
             ? seconds - (now - readAt) : fallback - (now - TurnAt));
 
     public bool ClockActive(double now) => lastClock is double clock && now - clock <= 1.05;
+    public bool CanRetry => retryAt.HasValue && attemptedThisTurn.Count < 3;
+    public bool RetryIsCurrent(double now) => CanRetry && now - retryAt <= 1.2;
+
+    public bool CanType(string? row, double now) => Phase == MatchPhase.Turn && Prefix.Length > 0 &&
+        pending is not { Automatic: true } &&
+        repeats >= 2 && string.Equals(row, Prefix, StringComparison.OrdinalIgnoreCase) && ClockActive(now) &&
+        (LiveSeconds is not double seconds || SecondsAt is not double at || seconds - (now - at) > .8);
+
+    public string? NextAutomaticWord(bool skipPrefix)
+    {
+        var excluded = used.ToHashSet(StringComparer.Ordinal);
+        excluded.UnionWith(rejectedThisTurn);
+        excluded.UnionWith(attemptedThisTurn);
+        if (skipPrefix) excluded.Add(Prefix);
+        return Suggestions.FirstOrDefault(word => !excluded.Contains(word)) ??
+            lexicon.Search(Prefix, excluded, options, 1).FirstOrDefault();
+    }
 
     public void Observe(Reading reading, double now, int endAfter)
     {
+        ObserveMistakes(reading.Mistakes, now);
         bool live = reading.ClockVisible || reading.Seconds > 0;
         if (live)
         {
@@ -136,7 +161,8 @@ public sealed class Match
         }
 
         string letters = reading.Row.ToLowerInvariant();
-        double gap = blankAt is double blank ? now - blank : 0;
+        if (blankAt is double blank) transitionGap = now - blank;
+        blankAt = null;
         if (letters != candidate || repeats == 0)
         {
             candidate = letters;
@@ -159,23 +185,30 @@ public sealed class Match
         bool extension = Prefix.Length > 0 && !same && letters.StartsWith(Prefix, StringComparison.Ordinal);
         bool fragment = !same && Prefix.StartsWith(letters, StringComparison.Ordinal);
         bool changed = !same && !extension && !fragment;
-        bool different = changed && repeats >= 3 && now - candidateAt >= .19;
+        bool different = changed && letters.Length >= Prefix.Length && repeats >= 3 && now - candidateAt >= .19;
         bool carry = typedWord is not null && typedWord != letters && letters != Prefix &&
             typedWord.EndsWith(letters, StringComparison.Ordinal);
         bool reset = resetAt is double resetTime && now - resetTime < 1.5 &&
             (!extension || candidateAt >= resetTime - .5);
+        bool gap = transitionGap >= .40;
 
-        if (Phase == MatchPhase.Waiting || reset || carry || different || gap >= .40 && (changed || Phase == MatchPhase.Between))
+        if (Phase == MatchPhase.Waiting || reset || carry || different || gap && (changed || Phase == MatchPhase.Between))
         {
-            if (carry) Record(typedWord!, PlayedOrigin.Observed);
+            if (typedWord is { } observedWord && (carry || reset && observedWord == letters))
+                Record(observedWord, (reset || gap) && reading.Mistakes.HasValue && rejectionFrames == 0
+                    ? PlayedOrigin.BoardAccepted : PlayedOrigin.Observed);
+            if ((reset || gap) && pending is { Automatic: true } answer && rejectionFrames == 0 &&
+                (answer.Word.EndsWith(letters, StringComparison.Ordinal) || typedWord == answer.Word))
+                Record(answer.Word, PlayedOrigin.BoardAccepted);
             double? clock = reading.Seconds ??
                 (LiveSeconds is double last && SecondsAt is double at && now - at <= .38 ? Math.Max(0, last - (now - at)) : null);
             SetPrompt(letters, now, clock);
         }
         else
         {
-            if (extension && IsKnown(letters)) typedWord = letters;
+            if (extension && IsKnown(letters) && !rejectedThisTurn.Contains(letters)) typedWord = letters;
             if (Phase == MatchPhase.Between) SetPhase(MatchPhase.Turn);
+            transitionGap = 0;
         }
     }
 
@@ -220,10 +253,78 @@ public sealed class Match
         clockJump = null;
         resetAt = null;
         typedWord = null;
+        transitionGap = 0;
+        attemptedThisTurn.Clear();
+        rejectedThisTurn.Clear();
+        pending = null;
+        rejectionFrames = 0;
+        retryAt = null;
         RestartSuggestions();
     }
 
     public bool IsKnown(string word) => lexicon.Contains(word) || options.Favorites.Contains(word);
+
+    public bool RecordSubmission(string draft, string? displayedRow, double now, bool fromPreviousTurn = false)
+    {
+        string prefix = fromPreviousTurn ? PreviousPrefix : Prefix;
+        if (prefix.Length == 0 || Phase is not (MatchPhase.Turn or MatchPhase.Between) ||
+            draft.Length == 0 || !draft.All(char.IsAsciiLetter)) return false;
+
+        draft = draft.ToLowerInvariant();
+        string? full = SuggestionOptions.Word(draft);
+        string? completion = draft.StartsWith(prefix, StringComparison.Ordinal)
+            ? null : SuggestionOptions.Word(prefix + draft);
+        string? row = displayedRow is null ? null : SuggestionOptions.Word(displayedRow);
+        string word;
+        if (row is not null && row.StartsWith(prefix, StringComparison.Ordinal) &&
+            (row == full || row == completion) && IsKnown(row))
+            word = row;
+        else if (full is not null && full.StartsWith(prefix, StringComparison.Ordinal) && IsKnown(full))
+            word = full;
+        else if (completion is not null && IsKnown(completion))
+            word = completion;
+        else return false;
+        if (fromPreviousTurn) Record(word, PlayedOrigin.Submitted);
+        else Submit(word, now, automatic: false);
+        return true;
+    }
+
+    public void Submit(string word, double now, bool automatic)
+    {
+        retryAt = null;
+        bool alreadyUsed = used.Contains(word);
+        if (automatic) attemptedThisTurn.Add(word);
+        else Record(word, PlayedOrigin.Submitted);
+        pending = !alreadyUsed && mistakes is int count ? (word, now, count, automatic) : null;
+        rejectionFrames = 0;
+    }
+
+    public void CancelRetry()
+    {
+        retryAt = null;
+        if (pending is { Automatic: true }) pending = null;
+    }
+
+    private void ObserveMistakes(int? count, double now)
+    {
+        if (count > mistakes)
+        {
+            if (typedWord is { } rejected) rejectedThisTurn.Add(rejected);
+            typedWord = null;
+        }
+        if (count is not null) mistakes = count;
+        if (pending is not { } answer) return;
+        if (now - answer.Time > 2.1) { pending = null; return; }
+        rejectionFrames = count > answer.Strikes ? rejectionFrames + 1 : 0;
+        if (rejectionFrames < 2) return;
+        pending = null;
+        rejectedThisTurn.Add(answer.Word);
+        typedWord = null;
+        Undo(answer.Word);
+        Suggestions.Remove(answer.Word);
+        Fill();
+        retryAt = answer.Automatic ? now : null;
+    }
 
     public void ApplyPreferences(SuggestionOptions value)
     {
@@ -251,6 +352,7 @@ public sealed class Match
     {
         if (Phase is not (MatchPhase.Turn or MatchPhase.Between)) return;
         var excluded = new HashSet<string>(used, StringComparer.Ordinal);
+        excluded.UnionWith(rejectedThisTurn);
         excluded.UnionWith(earlier);
         excluded.UnionWith(Suggestions);
         var matches = lexicon.Search(Prefix, excluded, options, options.Count - Suggestions.Count,
@@ -261,6 +363,7 @@ public sealed class Match
             if (shown.Add(word)) History.Add(word);
         }
         excluded = new HashSet<string>(used, StringComparer.Ordinal);
+        excluded.UnionWith(rejectedThisTurn);
         excluded.UnionWith(Suggestions);
         CanCycle = lexicon.Search(Prefix, excluded, options, 1).Count != 0;
         Revision++;
@@ -279,6 +382,7 @@ public sealed class Match
                 (PlayedOrigin.Submitted, PlayedOrigin.Observed) or (PlayedOrigin.Observed, PlayedOrigin.Submitted)
                     => PlayedOrigin.Confirmed,
                 (PlayedOrigin.Observed, PlayedOrigin.Manual) => PlayedOrigin.Manual,
+                (PlayedOrigin.Observed or PlayedOrigin.Submitted, PlayedOrigin.BoardAccepted) => PlayedOrigin.BoardAccepted,
                 _ => previous.Origin
             };
             PlayedWords[index] = new Played(word, combined);
@@ -304,6 +408,10 @@ public sealed class Match
         blankAt = noHudAt = lastClock = resetAt = null;
         clockJump = null;
         typedWord = null;
+        transitionGap = 0;
+        pending = null;
+        retryAt = null;
+        mistakes = null;
     }
 
     public void Reset()
@@ -320,6 +428,8 @@ public sealed class Match
         used.Clear();
         shown.Clear();
         earlier.Clear();
+        attemptedThisTurn.Clear();
+        rejectedThisTurn.Clear();
         CanCycle = false;
         Revision++;
     }

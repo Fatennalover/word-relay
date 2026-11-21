@@ -136,7 +136,7 @@ public sealed class MainActivity : Activity
         stack.AddView(words);
         RelayTheme.Gap(stack, this, 14);
         var footer = RelayTheme.Stack(this, true);
-        stats = RelayTheme.Label(this, "0 used · 0 shown", 12, RelayTheme.Muted);
+        stats = RelayTheme.Label(this, "0 played", 12, RelayTheme.Muted);
         stats.Gravity = GravityFlags.CenterVertical;
         footer.AddView(stats, new LinearLayout.LayoutParams(0, -1, 1));
         footer.AddView(RelayTheme.Button(this, "New match", () => store.Reset()));
@@ -178,7 +178,7 @@ public sealed class MainActivity : Activity
         revision = match.Revision;
         prefix.Text = match.Prefix.Length > 0 ? match.Prefix.ToUpperInvariant() : "—";
         prefix.TextSize = Math.Clamp(210f / Math.Max(1, match.Prefix.Length), 10f, 39f);
-        stats.Text = $"{match.UsedCount} used · {match.History.Count} shown";
+        stats.Text = $"{match.UsedCount} played";
         next.Text = $"Next {store.Preferences.Count}";
         next.Enabled = match.CanCycle;
         words.RemoveAllViews();
@@ -186,13 +186,11 @@ public sealed class MainActivity : Activity
             words.AddView(RelayTheme.Label(this, match.Prefix.Length == 0 ? "Your suggestions will appear here." : "No available matches for this prefix.", 14, RelayTheme.Muted));
         foreach (string word in match.Suggestions)
         {
-            var tile = RelayTheme.Button(this, word, () =>
+            var tile = RelayTheme.Suggestion(this, word, () =>
             {
                 RelayStore.Copy(this, word);
                 store.SetNotice($"Copied {word}");
-            });
-            tile.Gravity = GravityFlags.Left | GravityFlags.CenterVertical;
-            tile.LongClick += (_, e) => { store.Mark(word); e.Handled = true; };
+            }, () => store.Mark(word), 43);
             var height = new LinearLayout.LayoutParams(-1, RelayTheme.Dp(this, 43));
             height.BottomMargin = RelayTheme.Dp(this, 5);
             words.AddView(tile, height);
@@ -344,28 +342,39 @@ public sealed class MainActivity : Activity
         int pad = RelayTheme.Dp(this, 15);
         view.SetPadding(pad, pad, pad, pad);
         var entry = RelayTheme.Field(this, "Word played");
+        var played = RelayTheme.Stack(this);
+        var shown = RelayTheme.Stack(this);
         view.AddView(entry);
         view.AddView(RelayTheme.Button(this, "Mark played", () =>
         {
             if (SuggestionOptions.Word(entry.Text ?? "") is not { } word) return;
             store.Mark(word);
             entry.Text = "";
-            view.AddView(RelayTheme.Label(this, word, 14));
         }));
         view.AddView(RelayTheme.Label(this, "Played words (tap to undo)", 14, RelayTheme.Muted, true));
-        foreach (var word in store.Match.PlayedWords.AsEnumerable().Reverse())
-        {
-            Button? button = null;
-            button = RelayTheme.Button(this, word.Word, () => { store.Undo(word.Word); view.RemoveView(button); });
-            view.AddView(button);
-        }
+        view.AddView(played);
         view.AddView(RelayTheme.Label(this, "Shown words", 14, RelayTheme.Muted, true));
-        foreach (var word in store.Match.History.AsEnumerable().Reverse())
-            view.AddView(RelayTheme.Label(this, word, 13));
+        view.AddView(shown);
+        int historyRevision = -1;
+        void UpdateHistory()
+        {
+            if (historyRevision == store.Match.Revision) return;
+            historyRevision = store.Match.Revision;
+            played.RemoveAllViews();
+            foreach (var word in store.Match.PlayedWords.AsEnumerable().Reverse())
+                played.AddView(RelayTheme.Button(this, word.Word, () => store.Undo(word.Word)));
+            shown.RemoveAllViews();
+            foreach (var word in store.Match.History.AsEnumerable().Reverse())
+                shown.AddView(RelayTheme.Label(this, word, 13));
+        }
         var scroller = new ScrollView(this);
         scroller.AddView(view);
-        new AlertDialog.Builder(this).SetTitle("Match history").SetView(scroller)
+        var dialog = new AlertDialog.Builder(this).SetTitle("Match history").SetView(scroller)
             .SetPositiveButton("Done", (_, _) => { }).Show();
+        if (dialog is null) return;
+        UpdateHistory();
+        store.Changed += UpdateHistory;
+        dialog.DismissEvent += (_, _) => store.Changed -= UpdateHistory;
     }
 
     private sealed class Insets(View content, int extra) : Java.Lang.Object, View.IOnApplyWindowInsetsListener

@@ -230,7 +230,7 @@ internal sealed class FloatingWords : IDisposable
     private readonly RelayStore store;
     private readonly IWindowManager manager;
     private readonly LinearLayout view, suggestions;
-    private readonly TextView prompt;
+    private readonly TextView prompt, played;
     private readonly WindowManagerLayoutParams position;
     private int revision = -1;
     private float tapX, tapY;
@@ -253,6 +253,8 @@ internal sealed class FloatingWords : IDisposable
         close.ContentDescription = "Stop screen scanner";
         header.AddView(close, new LinearLayout.LayoutParams(RelayTheme.Dp(context, 36), RelayTheme.Dp(context, 34)));
         view.AddView(header);
+        played = RelayTheme.Label(context, "0 played", 11, RelayTheme.Muted);
+        view.AddView(played);
         var scroll = new ScrollView(context);
         suggestions = RelayTheme.Stack(context);
         scroll.AddView(suggestions);
@@ -303,14 +305,14 @@ internal sealed class FloatingWords : IDisposable
         if (revision == store.Match.Revision) return;
         revision = store.Match.Revision;
         prompt.Text = store.Match.Prefix.Length > 0 ? store.Match.Prefix.ToUpperInvariant() : "WORD RELAY";
+        played.Text = $"{store.Match.UsedCount} played";
         suggestions.RemoveAllViews();
         if (store.Match.Suggestions.Count == 0)
             suggestions.AddView(RelayTheme.Label(context, store.Match.Prefix.Length == 0 ? "Waiting for tiles" : "No available matches", 12, RelayTheme.Muted));
         foreach (var word in store.Match.Suggestions)
         {
-            var button = RelayTheme.Button(context, word, () => RelayStore.Copy(context, word));
-            button.LongClick += (_, args) => { store.Mark(word); args.Handled = true; };
-            suggestions.AddView(button, new LinearLayout.LayoutParams(-1, RelayTheme.Dp(context, 33)));
+            suggestions.AddView(RelayTheme.Suggestion(context, word, () => RelayStore.Copy(context, word),
+                () => store.Mark(word), 33));
         }
         if (store.Match.CanCycle) suggestions.AddView(RelayTheme.Button(context, "Next", store.Next));
     }

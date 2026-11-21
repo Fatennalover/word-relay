@@ -17,22 +17,24 @@ Word Relay reads letter tiles and finds English words that start with the full p
 
 | Platform | Download | How it works |
 | --- | --- | --- |
-| **macOS** | [Universal ZIP for macOS 14+](https://github.com/Fatennalover/word-relay/releases/download/v1.3.1/Word-Relay-for-macOS-1.3.1.zip) | Live Roblox window scanning, typed submission tracking, and screenshot lookup |
-| **Windows** | [x64 ZIP](https://github.com/Fatennalover/word-relay/releases/download/v1.3.0/Word-Relay-for-Windows-x64-1.3.0.zip) · [ARM64 ZIP](https://github.com/Fatennalover/word-relay/releases/download/v1.3.0/Word-Relay-for-Windows-arm64-1.3.0.zip) | Live scanning of the visible Roblox window, typed submission tracking, and screenshot lookup |
-| **Android** | [APK for Android 9+](https://github.com/Fatennalover/word-relay/releases/download/v1.3.0/Word-Relay-for-Android-1.3.0.apk) (ARM64 and x64) | Android screen sharing, floating suggestions, and screenshot lookup. Mark words played in the app. |
-| **iPad** | [Simulator ZIP](https://github.com/Fatennalover/word-relay/releases/download/v1.3.0/Word-Relay-iPad-Simulator-1.3.0.zip) · [Xcode project](ipad/WordRelayPad.xcodeproj) | Import screenshots from Photos or Files, or enter letters manually. Mark words played in the app. |
+| **macOS** | [Universal ZIP for macOS 14+](https://github.com/Fatennalover/word-relay/releases/download/v1.4.0/Word-Relay-for-macOS-1.4.0.zip) | Live Roblox scanning, submission tracking, and a shortcut to type an answer |
+| **Windows** | [x64 ZIP](https://github.com/Fatennalover/word-relay/releases/download/v1.4.0/Word-Relay-for-Windows-x64-1.4.0.zip) · [ARM64 ZIP](https://github.com/Fatennalover/word-relay/releases/download/v1.4.0/Word-Relay-for-Windows-arm64-1.4.0.zip) | Live Roblox scanning, submission tracking, and a shortcut to type an answer |
+| **Android** | [APK for Android 9+](https://github.com/Fatennalover/word-relay/releases/download/v1.4.0/Word-Relay-for-Android-1.4.0.apk) (ARM64 and x64) | Screen sharing, floating suggestions, board tracking, and one-tap marking |
+| **iPad** | [Simulator ZIP](https://github.com/Fatennalover/word-relay/releases/download/v1.4.0/Word-Relay-iPad-Simulator-1.4.0.zip) · [Xcode project](ipad/WordRelayPad.xcodeproj) | Screenshot import, typed prefixes, and one-tap marking |
 
 ## Start a match
 
-**macOS.** Extract the ZIP, move Word Relay to Applications, and open it alongside Roblox. On macOS 15.2 or later, click **Start** and choose the Roblox window in Apple's window picker. On macOS 14 through 15.1, enable Word Relay under **Privacy & Security → Screen & System Audio Recording**, then quit and reopen it. Enable **Input Monitoring** separately if you want Word Relay to track words you submit in Roblox.
+**macOS.** Extract the ZIP, move Word Relay to Applications, and open it alongside Roblox. On macOS 15.2 or later, click **Start** and choose the Roblox window in Apple's window picker. On macOS 14 through 15.1, enable Word Relay under **Privacy & Security → Screen & System Audio Recording**, then quit and reopen it. Enable **Input Monitoring** to track words you submit in Roblox. If an older permission entry still appears on after updating, remove Word Relay from **Input Monitoring**, add the current copy from Applications, and reopen it.
 
 **Windows.** Extract the ZIP for your PC and run `WordRelay.exe`. Keep Roblox visible in the foreground while scanning. The ZIP includes the .NET runtime.
 
 On both desktop apps, use **Control–Shift–S** to start scanning, **Control–Shift–D** to stop, and **Control–Shift–N** for a new match.
 
-**Android.** Install the APK and open Word Relay. Tap **Start scan**. Enable **Display over other apps** for floating suggestions, then select Roblox in Android’s sharing dialog. On versions that offer sharing one app, select Roblox to limit the capture to its window. Tap the overlay’s close button, the in-app **Stop scan** button, or the Android sharing notification to stop. You can long-press a suggestion to mark it played.
+On your turn, press **Control–Shift–W** with Roblox in the foreground to type and submit a suggestion. macOS asks for **Accessibility** permission the first time. By default, Word Relay types the letters after the starting tiles. Uncheck **Type only the letters after the prompt** if your game expects the whole word. When the scanner sees an additional red X and the same prompt is still active, it can try another suggestion, up to three attempts per turn.
 
-**iPad.** Open the Xcode project and run it on an iPad simulator. Choose **Photos** or **Files** to read the letter tiles from an image, or type the prefix. Long-press a suggestion to mark it played. This edition uses image imports and manual lookup.
+**Android.** Install the APK and open Word Relay. Tap **Start scan**. Enable **Display over other apps** for floating suggestions, then select Roblox in Android’s sharing dialog. On versions that offer sharing one app, select Roblox to limit the capture to its window. Tap the overlay’s close button, the in-app **Stop scan** button, or the Android sharing notification to stop. Tap a checkmark to mark a suggestion played.
+
+**iPad.** Open the Xcode project and run it on an iPad simulator. Choose **Photos** or **Files** to read the letter tiles from an image, or type the prefix. Tap a checkmark to mark a suggestion played.
 
 <details>
 <summary>iPad simulator preview</summary>
@@ -43,7 +45,11 @@ On both desktop apps, use **Control–Shift–S** to start scanning, **Control�
 
 ## Suggestions and match history
 
-Tap a word to copy it. **Next** cycles through batches of available suggestions. A word remains eligible until you submit it with desktop tracking enabled or mark it as played. Use **Undo** in match history if a word was rejected. Desktop and Android live scans keep the current suggestions visible through brief tile dropouts while the game clock is visible. Live match detection clears history when the game ends, and **New match** resets it manually.
+Tap a word to copy it. **Next** cycles through batches of available suggestions. The **Played** counter counts unique words recorded in the current match. Open match history to see which suggestions were shown.
+
+Live scans can count a complete answer from either player when the board shows the word and a matching turn handoff. Desktop apps also track pressing Enter in Roblox when submission tracking is enabled. A detected red X rolls back the rejected submission and skips that answer for the rest of the turn. Use **Undo** in match history to correct a missed rejection. Android and iPad support manual marking from the checkmark or match history.
+
+Live scans keep suggestions visible through brief tile dropouts while the game clock is visible. Live match detection clears history when the game ends, and **New match** resets it manually.
 
 ## Build from source
 

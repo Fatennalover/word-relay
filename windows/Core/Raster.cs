@@ -19,14 +19,16 @@ public sealed class Raster
     public readonly byte[] Gray;
     public readonly byte[] White;
     public readonly byte[] Blue;
+    public readonly byte[] Badge;
 
-    private Raster(int width, int height, byte[] gray, byte[] white, byte[] blue)
+    private Raster(int width, int height, byte[] gray, byte[] white, byte[] blue, byte[] badge)
     {
         Width = width;
         Height = height;
         Gray = gray;
         White = white;
         Blue = blue;
+        Badge = badge;
     }
 
     public static Raster FromPixels(int width, int height, ReadOnlySpan<byte> pixels, int stride, bool bgra)
@@ -34,6 +36,7 @@ public sealed class Raster
         var gray = new byte[width * height];
         var white = new byte[gray.Length];
         var blue = new byte[gray.Length];
+        var badge = new byte[gray.Length];
         int pixelSize = bgra ? 4 : 3;
         for (int y = 0; y < height; y++)
         {
@@ -46,9 +49,14 @@ public sealed class Raster
                 int low = Math.Min(r, Math.Min(g, b));
                 white[dst] = (byte)(low >= 224 && Math.Max(r, Math.Max(g, b)) - low < 23 ? 1 : 0);
                 blue[dst] = (byte)(b >= 163 && g >= 112 && b - r >= 24 && b - g >= 12 ? 1 : 0);
+                if (y >= height * 4 / 5)
+                {
+                    if (r is >= 145 and <= 245 && r - g >= 107 && b - g is >= 6 and <= 42) badge[dst] = 2;
+                    else if (r is >= 145 and <= 235 && r - g is >= 65 and <= 104 && Math.Abs(b - g) <= 8) badge[dst] = 1;
+                }
             }
         }
-        return new Raster(width, height, gray, white, blue);
+        return new Raster(width, height, gray, white, blue, badge);
     }
 
     public byte[] Slice(byte[] channel, Rectangle bounds)

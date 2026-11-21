@@ -52,7 +52,7 @@ internal static class Theme
 
 internal sealed record Settings(
     int Count = 5, int MinLength = 3, int CustomLimit = 100, List<string>? Custom = null, int TurnSeconds = 10,
-    int EndSeconds = 30, bool Topmost = true, bool TrackWords = true)
+    int EndSeconds = 30, bool Topmost = true, bool TrackWords = true, bool SkipTypedPrefix = true)
 {
     private static readonly string PathToFile = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WordRelay", "settings.json");
@@ -112,12 +112,14 @@ internal sealed class RelayWindow : Form
     private int generation, revision = -1;
     private string? copiedLabel;
     private string? errorLabel;
+    private (int Turn, double Until)? answerRequest;
 
     internal RelayWindow()
     {
         preferences = initial;
         match = new Match(lexicon, preferences.Options);
-        listener = new SubmissionListener(CanReadInput, PastedSuggestion, word => BeginInvoke(() => Submit(word)));
+        listener = new SubmissionListener(CanReadInput, PastedSuggestion,
+            (word, previous) => BeginInvoke(() => Submit(word, previous)));
         Text = "Word Relay";
         AccessibleName = Text;
         MinimumSize = new Size(380, 590);
@@ -253,7 +255,7 @@ internal sealed class RelayWindow : Form
         var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        history = Theme.Button("0 used · 0 shown", (_, _) => OpenHistory());
+        history = Theme.Button("0 played", (_, _) => OpenHistory());
         history.Anchor = AnchorStyles.Left;
         history.Margin = Padding.Empty;
         footer.Controls.Add(history, 0, 0);
@@ -271,12 +273,13 @@ internal sealed class RelayWindow : Form
         bool start = Native.RegisterHotKey(Handle, 1, Native.HotkeyModifiers, (uint)Keys.S);
         bool stop = Native.RegisterHotKey(Handle, 2, Native.HotkeyModifiers, (uint)Keys.D);
         bool restart = Native.RegisterHotKey(Handle, 3, Native.HotkeyModifiers, (uint)Keys.N);
-        shortcutConflict = !(start && stop && restart);
+        bool answer = Native.RegisterHotKey(Handle, 4, Native.HotkeyModifiers, (uint)Keys.W);
+        shortcutConflict = !(start && stop && restart && answer);
     }
 
     protected override void OnHandleDestroyed(EventArgs e)
     {
-        for (int i = 1; i <= 3; i++) Native.UnregisterHotKey(Handle, i);
+        for (int i = 1; i <= 4; i++) Native.UnregisterHotKey(Handle, i);
         base.OnHandleDestroyed(e);
     }
 
@@ -289,6 +292,9 @@ internal sealed class RelayWindow : Form
                 case 1: StartScan(); break;
                 case 2: StopScan(); break;
                 case 3: NewMatch(); break;
+                case 4:
+                    if (watching && game?.Foreground == true) answerRequest = (match.Turns, Program.Time + .65);
+                    break;
             }
         }
         base.WndProc(ref message);
@@ -309,6 +315,7 @@ internal sealed class RelayWindow : Form
     private void StopScan()
     {
         watching = false;
+        answerRequest = null;
         generation++;
         game = null;
         listener.Dispose();
@@ -319,6 +326,7 @@ internal sealed class RelayWindow : Form
 
     private void NewMatch()
     {
+        answerRequest = null;
         listener.Clear();
         match.Reset();
         RefreshPresentation();
@@ -346,7 +354,12 @@ internal sealed class RelayWindow : Form
             game = GameWindow.Find();
         }
         bool focused = game?.Foreground == true;
-        if (focusWasGame && !focused) listener.Clear();
+        if (focusWasGame && !focused)
+        {
+            listener.Clear();
+            answerRequest = null;
+            match.CancelRetry();
+        }
         focusWasGame = focused;
         if (!focused || game?.Bounds() is not { } bounds) return;
 
@@ -361,7 +374,14 @@ internal sealed class RelayWindow : Form
             lastFrameAt = Program.Time;
             int turn = match.Turns;
             match.Observe(reading, lastFrameAt, Math.Clamp(preferences.EndSeconds, 5, 120));
-            if (turn != match.Turns || match.Phase != MatchPhase.Turn) listener.Clear();
+            if (turn != match.Turns) listener.TurnChanged();
+            if (match.Phase is MatchPhase.Waiting or MatchPhase.Finished) listener.Clear();
+            if (answerRequest is { } request)
+            {
+                if (request.Turn != match.Turns || request.Until < lastFrameAt) answerRequest = null;
+                else if (AnswerTyping.ModifiersReleased) { answerRequest = null; TypeAnswer(); }
+            }
+            else if (match.RetryIsCurrent(lastFrameAt)) TypeAnswer();
         }
         catch (Exception error) when (error is Win32Exception or ExternalException or ArgumentException)
         {
@@ -372,19 +392,34 @@ internal sealed class RelayWindow : Form
     }
 
     private bool CanReadInput() => watching && tracking && game?.Foreground == true &&
-        match.Phase == MatchPhase.Turn && Program.Time - lastFrameAt <= .65 &&
-        (lastFrame.Row is not null || match.ClockActive(Program.Time));
+        match.Phase is (MatchPhase.Turn or MatchPhase.Between) && match.Prefix.Length > 0 &&
+        Program.Time - lastFrameAt < 3;
 
     private string? PastedSuggestion() => ownedClipboard is not null &&
         Native.GetClipboardSequenceNumber() == clipboardSequence ? ownedClipboard : null;
 
-    private void Submit(string word)
+    private void Submit(string draft, bool fromPreviousTurn)
     {
-        if (!tracking || !watching || match.Phase != MatchPhase.Turn || !match.IsKnown(word)) return;
-        var shownRow = lastFrame.Row?.ToLowerInvariant() ?? "";
-        if (new[] { match.Prefix, match.PreviousPrefix, shownRow }.Any(p => p.Length > 0 && word.StartsWith(p, StringComparison.Ordinal)))
-            match.Record(word, PlayedOrigin.Submitted);
-        RefreshPresentation();
+        if (fromPreviousTurn && Program.Time - match.TurnAt >= .7) return;
+        if (match.RecordSubmission(draft, lastFrame.Row, Program.Time, fromPreviousTurn)) RefreshPresentation();
+    }
+
+    private void TypeAnswer()
+    {
+        if (game is not { Foreground: true } active || lastFrame.Mistakes is null ||
+            !match.CanType(lastFrame.Row, Program.Time)) return;
+        if (match.NextAutomaticWord(preferences.SkipTypedPrefix) is not { } word)
+        {
+            match.CancelRetry();
+            Report("No untried suggestion for this turn.");
+            return;
+        }
+        string text = preferences.SkipTypedPrefix ? word[match.Prefix.Length..] : word;
+        if (!AnswerTyping.Type(text, active)) return;
+        listener.Clear();
+        match.Submit(word, Program.Time, automatic: true);
+        copiedLabel = $"Sent {word} · waiting for the game";
+        copyUntil = Program.Time + 1.4;
     }
 
     private void Lookup()
@@ -472,7 +507,7 @@ internal sealed class RelayWindow : Form
                 previous.Dispose();
             }
             next.Enabled = match.CanCycle;
-            history.Text = $"{match.UsedCount} used · {match.History.Count} shown";
+            history.Text = $"{match.UsedCount} played";
         }
         next.Text = $"Next {preferences.Options.Count}";
         screenshot.Enabled = !watching && !busy;
@@ -492,7 +527,9 @@ internal sealed class RelayWindow : Form
         status.ForeColor = watching && focusWasGame ? Theme.Mint : Theme.Dim;
         note.ForeColor = now < lastErrorUntil ? Theme.Warm : Theme.Dim;
         note.Text = now < lastErrorUntil ? errorLabel : now < copyUntil ? copiedLabel :
-            match.FinishReason ?? (match.Suggestions.Count == 0 && match.Prefix.Length > 0
+            match.FinishReason ?? (watching && preferences.TrackWords && !tracking
+                ? "Typing tracking unavailable · right-click to mark played"
+                : match.Suggestions.Count == 0 && match.Prefix.Length > 0
                 ? $"No available matches for {match.Prefix.ToUpperInvariant()}."
                 : match.Suggestions.Count > 0 ? "Click to copy · right-click to mark played"
                 : watching ? "Keep the Roblox window visible." : "Start scanning or enter the letters below.");

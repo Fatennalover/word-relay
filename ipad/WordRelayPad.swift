@@ -240,15 +240,24 @@ private struct RelayPadView: View {
                     .background(panel, in: RoundedRectangle(cornerRadius: 9))
             }
             ForEach(model.match.suggestions, id: \.self) { word in
-                Button { model.copy(word) } label: {
-                    HStack {
-                        Text(word).font(.system(.headline, design: .monospaced)).foregroundStyle(.white)
-                        Spacer()
-                        Image(systemName: "doc.on.doc").foregroundStyle(muted)
-                    }.padding(13).background(panel, in: RoundedRectangle(cornerRadius: 8))
+                HStack(spacing: 8) {
+                    Button { model.copy(word) } label: {
+                        HStack {
+                            Text(word).font(.system(.headline, design: .monospaced)).foregroundStyle(.white)
+                            Spacer()
+                            Image(systemName: "doc.on.doc").foregroundStyle(muted)
+                        }.padding(13).background(panel, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { Button("Mark played") { model.record(word) } }
+                    Button { model.record(word) } label: {
+                        Image(systemName: "checkmark")
+                            .frame(width: 46, height: 46)
+                            .background(panel, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Mark \(word) played")
                 }
-                .buttonStyle(.plain)
-                .contextMenu { Button("Mark played") { model.record(word) } }
             }
         }
     }
@@ -258,7 +267,7 @@ private struct RelayPadView: View {
             Button {
                 showHistory = true
             } label: {
-                Label("\(model.match.usedCount) used · \(model.match.history.count) shown",
+                Label("\(model.match.usedCount) played",
                       systemImage: "clock.arrow.circlepath")
             }
             Spacer()

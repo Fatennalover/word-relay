@@ -111,6 +111,28 @@ internal static partial class Native
     internal struct Point { public int X, Y; }
     [StructLayout(LayoutKind.Sequential)]
     internal struct KeyboardData { public uint VirtualKey, ScanCode, Flags, Time; public nuint Extra; }
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Input { public uint Type; public InputData Data; }
+    [StructLayout(LayoutKind.Explicit)]
+    internal struct InputData
+    {
+        [FieldOffset(0)] public KeyboardInput Keyboard;
+        [FieldOffset(0)] private MouseInput mouse;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct KeyboardInput
+    {
+        public ushort Key, Scan;
+        public uint Flags, Time;
+        public nuint Extra;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseInput
+    {
+        public int X, Y;
+        public uint MouseData, Flags, Time;
+        public nuint Extra;
+    }
 
     internal delegate bool Enumerate(nint hwnd, nint data);
     internal delegate nint KeyboardCallback(int code, nuint message, nint data);
@@ -128,24 +150,50 @@ internal static partial class Native
     [DllImport("user32.dll")] internal static extern bool UnregisterHotKey(nint hwnd, int id);
     [DllImport("user32.dll")] internal static extern short GetAsyncKeyState(int key);
     [DllImport("user32.dll")] internal static extern uint GetClipboardSequenceNumber();
+    [DllImport("user32.dll", SetLastError = true)] internal static extern uint SendInput(uint count, Input[] inputs, int size);
     [DllImport("user32.dll", SetLastError = true)] internal static extern nint SetWindowsHookEx(int hook, KeyboardCallback callback, nint module, uint thread);
     [DllImport("user32.dll")] internal static extern bool UnhookWindowsHookEx(nint hook);
     [DllImport("user32.dll")] internal static extern nint CallNextHookEx(nint hook, int code, nuint message, nint data);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] internal static extern nint GetModuleHandle(string? name);
 }
 
+internal static class AnswerTyping
+{
+    internal const nuint EventTag = 0x57524C59;
+    internal static bool ModifiersReleased => Native.GetAsyncKeyState(0x10) >= 0 &&
+        Native.GetAsyncKeyState(0x11) >= 0 && Native.GetAsyncKeyState(0x12) >= 0 &&
+        Native.GetAsyncKeyState(0x5B) >= 0 && Native.GetAsyncKeyState(0x5C) >= 0;
+
+    internal static bool Type(string text, GameWindow game)
+    {
+        if (text.Length == 0 || !text.All(char.IsAsciiLetter) || !ModifiersReleased) return false;
+        var keys = text.ToUpperInvariant().Select(c => (ushort)c).Append((ushort)0x0D);
+        var inputs = keys.SelectMany(key => new[] { Press(key, 0), Press(key, 2) }).ToArray();
+        return game.Foreground && Native.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Native.Input>()) == inputs.Length;
+    }
+
+    private static Native.Input Press(ushort key, uint flags) => new()
+    {
+        Type = 1,
+        Data = new Native.InputData
+        {
+            Keyboard = new Native.KeyboardInput { Key = key, Flags = flags, Extra = EventTag }
+        }
+    };
+}
+
 internal sealed class SubmissionListener : IDisposable
 {
     private readonly Func<bool> canRead;
     private readonly Func<string?> pasted;
-    private readonly Action<string> submit;
+    private readonly Action<string, bool> submit;
     private readonly Native.KeyboardCallback callback;
     private readonly StringBuilder draft = new(40);
     private nint hook;
     private int cursor;
-    private bool selected, invalid;
+    private bool selected, invalid, previousTurn;
 
-    public SubmissionListener(Func<bool> canRead, Func<string?> pasted, Action<string> submit)
+    public SubmissionListener(Func<bool> canRead, Func<string?> pasted, Action<string, bool> submit)
     {
         this.canRead = canRead;
         this.pasted = pasted;
@@ -164,7 +212,13 @@ internal sealed class SubmissionListener : IDisposable
     {
         draft.Clear();
         cursor = 0;
-        selected = invalid = false;
+        selected = invalid = previousTurn = false;
+    }
+
+    public void TurnChanged()
+    {
+        if (previousTurn) Clear();
+        previousTurn = true;
     }
 
     public void Dispose()
@@ -178,8 +232,12 @@ internal sealed class SubmissionListener : IDisposable
     {
         if (code >= 0 && message is Native.KeyDown or Native.SystemKeyDown)
         {
-            if (canRead()) Key((int)Marshal.PtrToStructure<Native.KeyboardData>(data).VirtualKey);
-            else Clear();
+            var input = Marshal.PtrToStructure<Native.KeyboardData>(data);
+            if (input.Extra != AnswerTyping.EventTag)
+            {
+                if (canRead()) Key((int)input.VirtualKey);
+                else Clear();
+            }
         }
         return Native.CallNextHookEx(hook, code, message, data);
     }
@@ -188,6 +246,7 @@ internal sealed class SubmissionListener : IDisposable
 
     private void Key(int key)
     {
+        if (previousTurn && key != 0x0D) Clear();
         if (Down(0x12) || Down(0x5B) || Down(0x5C)) return;
         if (Down(0x11))
         {
@@ -206,9 +265,10 @@ internal sealed class SubmissionListener : IDisposable
         switch (key)
         {
             case 0x0D:
-                string? word = invalid ? null : SuggestionOptions.Word(draft.ToString());
+                string? word = invalid || draft.Length == 0 ? null : draft.ToString();
+                bool fromPreviousTurn = previousTurn;
                 Clear();
-                if (word is not null) submit(word);
+                if (word is not null) submit(word, fromPreviousTurn);
                 break;
             case 0x08:
                 if (selected) Clear();

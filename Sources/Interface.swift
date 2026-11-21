@@ -213,7 +213,7 @@ struct DashboardView: View {
     }
 
     private var suggestionNote: String {
-        if let message = model.message { return message }
+        if let message = model.message ?? model.answerStatus { return message }
         if let reason = model.match.finishReason { return reason }
         if let copied = model.copied { return "Copied \(copied)" }
         if model.match.prefix.isEmpty {
@@ -228,6 +228,20 @@ struct DashboardView: View {
     }
 
     private func wordRow(_ word: String) -> some View {
+        HStack(spacing: 5) {
+            copyWordButton(word)
+            Button {
+                model.recordPlayed(word)
+            } label: {
+                Image(systemName: "checkmark").frame(width: 14)
+            }
+            .buttonStyle(FillButton(major: false, height: 34))
+            .help("Mark \(word) played")
+            .accessibilityLabel("Mark \(word) played")
+        }
+    }
+
+    private func copyWordButton(_ word: String) -> some View {
         Button {
             model.copy(word)
         } label: {
@@ -294,7 +308,7 @@ struct DashboardView: View {
                 Button {
                     sheet = .history
                 } label: {
-                    Label("\(model.match.usedCount) used · \(model.match.history.count) shown",
+                    Label("\(model.match.usedCount) played",
                           systemImage: "clock.arrow.circlepath")
                 }
                 .help("View played words and suggestion history")
@@ -309,6 +323,15 @@ struct DashboardView: View {
             .buttonStyle(.plain)
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(dim)
+            if model.keyboardStatus == .needsPermission {
+                Button("Enable Input Monitoring to track typing") { model.allowInputMonitoring() }
+                    .buttonStyle(.link)
+                    .lineLimit(1)
+            } else if model.keyboardStatus == .unavailable {
+                Text("Typing unavailable. Use the checkmark to mark a word.")
+                    .font(.caption)
+                    .foregroundStyle(amber)
+            }
         }
     }
 
@@ -569,7 +592,15 @@ private struct SettingsView: View {
                 shortcut("Start scanning", "⌃ ⇧ S")
                 shortcut("Stop scanning", "⌃ ⇧ D")
                 shortcut("New match", "⌃ ⇧ N")
+                shortcut("Type an answer in Roblox", "⌃ ⇧ W")
             }
+            Toggle("Type only the letters after the prompt", isOn: Binding(
+                get: { model.preferences.skipsTypedPrefix },
+                set: { model.preferences.typeSuffixOnly = $0 }
+            ))
+            Text("Press the answer shortcut on your turn. Word Relay can try another suggestion when it sees a new red X.")
+                .font(.caption)
+                .foregroundStyle(dim)
             if !model.hotkeysAvailable {
                 Text("One or more shortcuts are used by another app. The window controls are still available.")
                     .font(.caption).foregroundStyle(amber)
